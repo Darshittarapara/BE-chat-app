@@ -21,6 +21,7 @@ export const generateToken = (user, res) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'none',
+      domain: process.env.NODE_ENV == 'production' ? 'be-chat-app-m7k7.onrender.com' : "localhost",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
