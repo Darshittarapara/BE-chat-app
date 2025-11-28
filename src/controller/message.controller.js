@@ -31,15 +31,16 @@ export const sendMessage = async (req, res, next) => {
       senderId,
       receiverId,
       text: text || null,
+      isRead: false,
       images: imageUrls, // store many URLs here
     });
     const receiverSocketId = getReceiverSocketId(receiverId)
-    if(receiverSocketId) {
+    if (receiverSocketId) {
       io.to(receiverSocketId).emit('newMessage', newMessage);
     }
 
 
-     res.status(201).json({
+    res.status(201).json({
       status: true,
       message: "Message sent successfully",
       data: newMessage,
@@ -54,43 +55,106 @@ export const sendMessage = async (req, res, next) => {
 
 
 export const getMessages = async (req, res, next) => {
-    try {
-        const { id: userOnChat } = req.params;
-        const myId = req.user._id;
+  try {
+    const { id: userOnChat } = req.params;
+    const myId = req.user._id;
 
-        /**
-         * Find messages where:
-         * 1. senderId is myId and receiverId is userOnChat
-         * OR
-         * 2. senderId is userOnChat and receiverId is myId
-         */
-        const message = await Message.find({
-            $or: [
-                { senderId: myId, receiverId: userOnChat },
-                { senderId: userOnChat, receiverId: myId }
-            ]
-        });
-        res.status(200).json({
-            status: true,
-            message: "Messages fetched successfully",
-            data: message
-        });
+    /**
+     * Find messages where:
+     * 1. senderId is myId and receiverId is userOnChat
+     * OR
+     * 2. senderId is userOnChat and receiverId is myId
+     */
+    const message = await Message.find({
+      $or: [
+        { senderId: myId, receiverId: userOnChat },
+        { senderId: userOnChat, receiverId: myId }
+      ]
+    });
+    res.status(200).json({
+      status: true,
+      message: "Messages fetched successfully",
+      data: message
+    });
 
-    } catch (error) {
-        next(error);
-    }
+  } catch (error) {
+    next(error);
+  }
 }
 
 export const getUsers = async (req, res, next) => {
-    try {
-        const myId = req.user._id;
-        const message = await User.find(({ _id: { $ne: myId } }));
-        res.status(200).json({
-            status: true,
-            message: "Users fetched successfully",
-            data: message
+  try {
+    const myId = req.user._id;
+
+    // Get all users except me
+    const users = await User.find({ _id: { $ne: myId } }).lean();
+
+    const formattedUsers = await Promise.all(
+      users.map(async (user) => {
+        // unread messages FROM user → TO me
+        const unreadCount = await Message.countDocuments({
+          senderId: user._id,
+          receiverId: myId,
+          isRead: false,
         });
-    } catch (error) {
-        next(error);
-    }
+
+        // last message between me & user
+        const lastMessage = await Message.findOne({
+          $or: [
+            { senderId: myId, receiverId: user._id },
+            { senderId: user._id, receiverId: myId },
+          ],
+          isRead: true,
+        })
+          .sort({ createdAt: -1 })
+          .lean();
+
+
+        return {
+          ...user,
+          unreadCount,
+          lastMessage,
+        };
+      })
+    );
+
+    res.status(200).json({
+      status: true,
+      message: "Users fetched successfully",
+      data: formattedUsers,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+export const markRead = async (req, res, next) => {
+  try {
+    const loggeduserid = req.user._id;
+    const { id: receiverId } = req.params;
+    await Message.updateMany(
+      {
+        $or: [
+          { receiverId, senderId: loggeduserid },
+          { senderId: receiverId, receiverId: loggeduserid }
+        ]
+      },
+      { $set: { isRead: true } }
+    )
+    const messages = await Message.find({
+      $or: [
+        { receiverId, senderId: loggeduserid },
+        { senderId: receiverId, receiverId: loggeduserid }
+      ]
+    })
+    res.status(200).json({
+      status: true,
+      message: "Message Readed",
+      messages: messages
+    })
+
+  } catch (error) {
+    next(error)
+  }
 }
