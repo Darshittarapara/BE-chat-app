@@ -3,6 +3,7 @@ import User from "../model/user.model.js";
 import Message from "../model/message.mode.js";
 import { getReceiverSocketId, io } from "../lib/socket.js";
 import fs from "fs";
+import mongoose from "mongoose";
 
 export const sendMessage = async (req, res, next) => {
   try {
@@ -34,8 +35,20 @@ export const sendMessage = async (req, res, next) => {
       isRead: false,
       images: imageUrls, // store many URLs here
     });
+    const unreadCount = await Message.countDocuments({
+      senderId,
+      receiverId: receiverId,
+      isRead: false,
+    });
+
+    console.log(unreadCount,'unreadCount')
+
     const receiverSocketId = getReceiverSocketId(receiverId)
     if (receiverSocketId) {
+      io.to(receiverSocketId).emit('unReadMessage',{
+        _id:receiverId,
+        unreadCount
+      })
       io.to(receiverSocketId).emit('newMessage', newMessage);
     }
 
@@ -98,22 +111,9 @@ export const getUsers = async (req, res, next) => {
           isRead: false,
         });
 
-        // last message between me & user
-        const lastMessage = await Message.findOne({
-          $or: [
-            { senderId: myId, receiverId: user._id },
-            { senderId: user._id, receiverId: myId },
-          ],
-          isRead: true,
-        })
-          .sort({ createdAt: -1 })
-          .lean();
-
-
         return {
           ...user,
           unreadCount,
-          lastMessage,
         };
       })
     );
@@ -142,11 +142,23 @@ export const markRead = async (req, res, next) => {
       },
       { $set: { isRead: true } }
     )
+    /**
+     * In this case I am receiver (logind user) which get message from other users(sender)
+     */
+
+
     const messages = await Message.find({
       $or: [
         { receiverId, senderId: loggeduserid },
         { senderId: receiverId, receiverId: loggeduserid }
       ]
+    })
+    const users = await User.findById(receiverId).lean();
+
+    const receiverSocketId = getReceiverSocketId(receiverId)
+    io.to(receiverSocketId).emit('updateduserscount', {
+      ...users,
+      unreadCount: null
     })
     res.status(200).json({
       status: true,
