@@ -41,8 +41,6 @@ export const sendMessage = async (req, res, next) => {
       isRead: false,
     });
 
-    console.log(unreadCount,'unreadCount')
-
     const receiverSocketId = getReceiverSocketId(receiverId)
     if (receiverSocketId) {
       io.to(receiverSocketId).emit('unReadMessage',{
